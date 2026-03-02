@@ -56,10 +56,10 @@
     "homepage": "https://plotnerd.com",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/plotnerd/stat-engine.git"
+        "url": "git+https://github.com/paradoxie/stat-engine.git"
     },
     "bugs": {
-        "url": "https://github.com/plotnerd/stat-engine/issues"
+        "url": "https://github.com/paradoxie/stat-engine/issues"
     },
     "devDependencies": {
         "tsup": "^8.0.0",
