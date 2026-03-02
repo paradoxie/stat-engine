@@ -1,6 +1,6 @@
 {
     "name": "@plotnerd/stat-engine",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Multi-algorithm quartile & statistics engine — Tukey, R-7, Excel QUARTILE.INC/EXC, WolframAlpha. Powers plotnerd.com.",
     "type": "module",
     "main": "./dist/index.cjs",
