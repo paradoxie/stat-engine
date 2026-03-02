@@ -8,7 +8,14 @@
  */
 
 export { MultiAlgorithmEngine } from './engine';
-export { calculateMedian, roundToPrecision, kahanSum } from './math-utils';
+export {
+    calculateMedian,
+    roundToPrecision,
+    kahanSum,
+    isSortedAscending,
+    calculateVariance,
+    calculateStdDev,
+} from './math-utils';
 export type {
     QuartileAlgorithm,
     AlgorithmMetadata,

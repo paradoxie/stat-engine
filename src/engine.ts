@@ -8,7 +8,7 @@ import type {
     AlgorithmRecommendation,
     StatisticalResults
 } from './types';
-import { calculateMedian, kahanSum } from './math-utils';
+import { calculateMedian, kahanSum, isSortedAscending, calculateVariance, calculateStdDev } from './math-utils';
 
 /**
  * PlotNerd Multi-Algorithm Calculation Engine V2.2
@@ -323,6 +323,13 @@ export class MultiAlgorithmEngine {
             throw new Error('At least 4 data points required for quartile calculation');
         }
 
+        // Validate all values are finite numbers
+        for (let i = 0; i < numbers.length; i++) {
+            if (!isFinite(numbers[i])) {
+                throw new Error(`Invalid value at index ${i}: ${numbers[i]}. All values must be finite numbers.`);
+            }
+        }
+
         const sortedData = [...numbers].sort((a, b) => a - b);
 
         const minimum = sortedData[0];
@@ -331,6 +338,8 @@ export class MultiAlgorithmEngine {
         const sum = kahanSum(numbers);
         const mean = sum / count;
         const dataRange = maximum - minimum;
+        const variance = calculateVariance(numbers, mean);
+        const standardDeviation = calculateStdDev(numbers, mean);
 
         const results: MultiAlgorithmResults = {} as MultiAlgorithmResults;
 
@@ -377,6 +386,8 @@ export class MultiAlgorithmEngine {
                     outlierIndices,
                     lowerFence: round(lowerFence),
                     upperFence: round(upperFence),
+                    variance: round(variance),
+                    standardDeviation: round(standardDeviation),
                     calculationTime: (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime,
                     dataRange: round(dataRange),
                     mean: round(mean)

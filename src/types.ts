@@ -44,6 +44,10 @@ export interface StatisticalResults {
     outlierIndices: number[];
     lowerFence: number;
     upperFence: number;
+    /** Population variance (σ²). */
+    variance: number;
+    /** Population standard deviation (σ). */
+    standardDeviation: number;
     calculationTime: number;
     dataRange: number;
     mean: number;
