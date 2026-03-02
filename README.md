@@ -1,8 +1,11 @@
 # @plotnerd/stat-engine
 
 [![npm version](https://img.shields.io/npm/v/@plotnerd/stat-engine.svg)](https://www.npmjs.com/package/@plotnerd/stat-engine)
+[![npm downloads](https://img.shields.io/npm/dm/@plotnerd/stat-engine.svg)](https://www.npmjs.com/package/@plotnerd/stat-engine)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/@plotnerd/stat-engine)](https://bundlephobia.com/package/@plotnerd/stat-engine)
 [![license](https://img.shields.io/npm/l/@plotnerd/stat-engine.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+[![test status](https://img.shields.io/github/actions/workflow/status/paradoxie/stat-engine/ci.yml?label=tests)](https://github.com/paradoxie/stat-engine/actions)
 
 **Multi-algorithm quartile & statistics engine** — the calculation core behind [PlotNerd.com](https://plotnerd.com).
 
@@ -28,6 +31,14 @@ Different tools calculate quartiles differently. The same dataset can produce **
 npm install @plotnerd/stat-engine
 ```
 
+Also works with yarn, pnpm, and bun:
+
+```bash
+yarn add @plotnerd/stat-engine
+pnpm add @plotnerd/stat-engine
+bun add @plotnerd/stat-engine
+```
+
 ## Quick Start
 
 ```ts
@@ -45,6 +56,19 @@ console.log(results.r_python_default.iqr);    // 17
 // Full five-number summary
 console.log(results.tukey_hinges.fiveNumberSummary);
 // [6, 25.5, 40, 42.5, 49]
+```
+
+### Each algorithm result includes:
+
+```ts
+{
+  minimum, maximum, count, sum, mean,   // Basic stats
+  q1, median, q3, iqr,                  // Quartiles
+  fiveNumberSummary,                     // [min, Q1, median, Q3, max]
+  outliers, outlierIndices,              // Outlier detection
+  lowerFence, upperFence,               // 1.5×IQR fences
+  dataRange, calculationTime             // Metadata
+}
 ```
 
 ## API
@@ -66,6 +90,8 @@ Calculate quartiles using a specific algorithm.
 const sorted = [1, 2, 3, 4, 5, 6, 7, 8];
 const { q1, median, q3 } = MultiAlgorithmEngine.calculateQuartiles(sorted, 'r_python_default');
 ```
+
+**Available algorithms:** `tukey_hinges` | `r_python_default` | `excel_inclusive` | `excel_exclusive` | `wolfram_alpha`
 
 ### `MultiAlgorithmEngine.compareAlgorithms(results, baseAlgorithm?)`
 
@@ -103,6 +129,14 @@ console.log(verify.verificationUrl);  // WolframAlpha link
 console.log(verify.verificationCode); // Copy-paste code
 ```
 
+### `MultiAlgorithmEngine.getAvailableAlgorithms()`
+
+Returns metadata for all five algorithms, including name, description, category, compatible software, and precision type.
+
+### `MultiAlgorithmEngine.getAlgorithmMetadata(algorithm)`
+
+Returns metadata for a specific algorithm.
+
 ## Utility Functions
 
 ```ts
@@ -113,9 +147,43 @@ kahanSum([0.1, 0.2, 0.3]);            // 0.6 (compensated)
 roundToPrecision(3.14159, 2);          // 3.14
 ```
 
+## TypeScript Support
+
+Full TypeScript support with exported types:
+
+```ts
+import type {
+  QuartileAlgorithm,
+  StatisticalResults,
+  MultiAlgorithmResults,
+  AlgorithmComparison,
+  AlgorithmRecommendation,
+  VerificationResult,
+} from '@plotnerd/stat-engine';
+```
+
+## Numerical Accuracy
+
+- **Kahan summation** for compensated floating-point addition
+- **Numerically stable median** using overflow-safe midpoint calculation
+- **4-decimal precision** with epsilon-aware rounding
+- **26 test cases** covering edge cases, negative numbers, duplicates, and precision
+
+## Browser & Node.js Support
+
+Works in both environments:
+
+| Environment | Version |
+|-------------|---------|
+| Node.js | 16+ |
+| Chrome | 80+ |
+| Firefox | 80+ |
+| Safari | 14+ |
+| Edge | 80+ |
+
 ## Used By
 
-- **[PlotNerd.com](https://plotnerd.com)** — Professional quartile calculator & box plot creator
+- **[PlotNerd.com](https://plotnerd.com)** — Professional quartile calculator & box plot creator with 10+ language support
 
 ## Algorithm Details
 
@@ -124,6 +192,18 @@ For a deep dive into how each algorithm works and when to use which, check out:
 - 📊 [Quartile Methods Compared](https://plotnerd.com/blog/quartile-methods-compared) — Side-by-side analysis
 - 📖 [Tukey vs R-7: Which Method Should You Use?](https://plotnerd.com/blog/tukey-vs-r7) — In-depth comparison
 - 🧮 [Interactive Quartile Guide](https://plotnerd.com/labs/interactive-quartile-guide) — Try it yourself
+- 🎯 [Why PlotNerd Is More Accurate](https://plotnerd.com/blog/plotnerd-vs-the-rest-why-our-calculations-are-more-accurate) — Accuracy deep dive
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues and pull requests.
+
+```bash
+git clone https://github.com/paradoxie/stat-engine.git
+cd stat-engine
+npm install
+npm test
+```
 
 ## License
 
