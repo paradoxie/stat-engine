@@ -8,7 +8,7 @@ import type {
     AlgorithmRecommendation,
     StatisticalResults
 } from './types';
-import { calculateMedian, kahanSum, isSortedAscending, calculateVariance, calculateStdDev } from './math-utils';
+import { calculateMedian, kahanSum, isSortedAscending, calculateVariance, calculateStdDev, roundToPrecision } from './math-utils';
 
 /**
  * PlotNerd Multi-Algorithm Calculation Engine V2.2
@@ -125,6 +125,12 @@ export class MultiAlgorithmEngine {
 
         if (sortedData.length === 0) {
             throw new Error('Cannot calculate quartiles for empty dataset');
+        }
+
+        if (!isSortedAscending(sortedData)) {
+            throw new Error(
+                'Data must be sorted in ascending order. Use [...data].sort((a, b) => a - b) first.'
+            );
         }
 
         const n = sortedData.length;
@@ -362,9 +368,7 @@ export class MultiAlgorithmEngine {
                     }
                 });
 
-                const round = (num: number): number => {
-                    return Math.round((num + Number.EPSILON) * 10000) / 10000;
-                };
+                const round = (num: number): number => roundToPrecision(num, 4);
 
                 results[algorithm] = {
                     minimum: round(minimum),

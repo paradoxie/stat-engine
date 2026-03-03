@@ -301,6 +301,30 @@ describe('MultiAlgorithmEngine V2.2', () => {
                 MultiAlgorithmEngine.calculateQuartiles(sortedData, 'invalid_algorithm' as QuartileAlgorithm);
             }).toThrow('Unsupported algorithm');
         });
+
+        it('should reject NaN values in dataset', () => {
+            expect(() => {
+                MultiAlgorithmEngine.calculateAllAlgorithms([1, 2, NaN, 4, 5]);
+            }).toThrow('Invalid value at index 2');
+        });
+
+        it('should reject Infinity values in dataset', () => {
+            expect(() => {
+                MultiAlgorithmEngine.calculateAllAlgorithms([1, 2, Infinity, 4, 5]);
+            }).toThrow('Invalid value at index 2');
+        });
+
+        it('should reject -Infinity values in dataset', () => {
+            expect(() => {
+                MultiAlgorithmEngine.calculateAllAlgorithms([1, -Infinity, 3, 4, 5]);
+            }).toThrow('Invalid value at index 1');
+        });
+
+        it('should reject unsorted data in calculateQuartiles', () => {
+            expect(() => {
+                MultiAlgorithmEngine.calculateQuartiles([5, 3, 1, 4, 2], 'r_python_default');
+            }).toThrow('Data must be sorted in ascending order');
+        });
     });
 
     describe('Precision and numerical stability', () => {
@@ -319,6 +343,8 @@ describe('MultiAlgorithmEngine V2.2', () => {
                 expect(checkPrecision(result.median)).toBe(true);
                 expect(checkPrecision(result.q3)).toBe(true);
                 expect(checkPrecision(result.iqr)).toBe(true);
+                expect(checkPrecision(result.variance)).toBe(true);
+                expect(checkPrecision(result.standardDeviation)).toBe(true);
             }
         });
 
@@ -332,6 +358,37 @@ describe('MultiAlgorithmEngine V2.2', () => {
                 expect(result.q3).toBe(5);
                 expect(result.iqr).toBe(0);
                 expect(result.outliers).toHaveLength(0);
+                expect(result.variance).toBe(0);
+                expect(result.standardDeviation).toBe(0);
+            }
+        });
+    });
+
+    describe('Variance and standard deviation', () => {
+        it('should compute correct variance and stddev for known dataset', () => {
+            // Data: [2, 4, 4, 4, 5, 5, 7, 9], mean = 5, variance = 4, stddev = 2
+            const data = [2, 4, 4, 4, 5, 5, 7, 9];
+            const results = MultiAlgorithmEngine.calculateAllAlgorithms(data);
+
+            // variance and stddev are algorithm-independent (same for all)
+            for (const result of Object.values(results)) {
+                expect(result.variance).toBe(4);
+                expect(result.standardDeviation).toBe(2);
+                expect(result.mean).toBe(5);
+            }
+        });
+
+        it('should return same variance across all algorithms', () => {
+            const data = [6, 7, 15, 36, 39, 40, 41, 42, 43, 47, 49];
+            const results = MultiAlgorithmEngine.calculateAllAlgorithms(data);
+            const algorithms = Object.keys(results) as QuartileAlgorithm[];
+
+            const firstVariance = results[algorithms[0]].variance;
+            const firstStdDev = results[algorithms[0]].standardDeviation;
+
+            for (const alg of algorithms) {
+                expect(results[alg].variance).toBe(firstVariance);
+                expect(results[alg].standardDeviation).toBe(firstStdDev);
             }
         });
     });
