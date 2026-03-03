@@ -1,6 +1,6 @@
 {
     "name": "@plotnerd/stat-engine",
-    "version": "1.1.1",
+    "version": "2.0.0",
     "description": "Multi-algorithm quartile & statistics engine — Tukey, R-7, Excel QUARTILE.INC/EXC, WolframAlpha. Powers plotnerd.com.",
     "type": "module",
     "main": "./dist/index.cjs",
@@ -29,7 +29,8 @@
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
         "lint": "tsc --noEmit",
-        "prepublishOnly": "npm run build"
+        "docs": "typedoc",
+        "prepublishOnly": "npm test && npm run build"
     },
     "keywords": [
         "statistics",
@@ -62,7 +63,9 @@
         "url": "https://github.com/paradoxie/stat-engine/issues"
     },
     "devDependencies": {
+        "@vitest/coverage-v8": "^1.6.1",
         "tsup": "^8.0.0",
+        "typedoc": "^0.28.17",
         "typescript": "^5.9.0",
         "vitest": "^1.3.0"
     },

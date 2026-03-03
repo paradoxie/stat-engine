@@ -22,7 +22,7 @@ export interface AlgorithmMetadata {
     name: string;
     description: string;
     category: 'academic' | 'software' | 'statistical';
-    compatibleWith: string[];
+    readonly compatibleWith: readonly string[];
     verificationSource: string;
     verificationMethod: string;
     precision: 'exact' | 'interpolated';
@@ -31,26 +31,30 @@ export interface AlgorithmMetadata {
 
 /** Statistical results for a single algorithm. */
 export interface StatisticalResults {
-    minimum: number;
-    maximum: number;
-    count: number;
-    sum: number;
-    q1: number;
-    median: number;
-    q3: number;
-    iqr: number;
-    fiveNumberSummary: [number, number, number, number, number];
-    outliers: number[];
-    outlierIndices: number[];
-    lowerFence: number;
-    upperFence: number;
+    readonly minimum: number;
+    readonly maximum: number;
+    readonly count: number;
+    readonly sum: number;
+    readonly q1: number;
+    readonly median: number;
+    readonly q3: number;
+    readonly iqr: number;
+    readonly fiveNumberSummary: readonly [number, number, number, number, number];
+    readonly outliers: readonly number[];
+    /**
+     * Indices of outlier values in the **original (unsorted) input array**.
+     * Use these to locate outliers in the caller's data, not in the sorted order.
+     */
+    readonly outlierIndices: readonly number[];
+    readonly lowerFence: number;
+    readonly upperFence: number;
     /** Population variance (σ²). */
-    variance: number;
+    readonly variance: number;
     /** Population standard deviation (σ). */
-    standardDeviation: number;
-    calculationTime: number;
-    dataRange: number;
-    mean: number;
+    readonly standardDeviation: number;
+    readonly calculationTime: number;
+    readonly dataRange: number;
+    readonly mean: number;
 }
 
 /** Results from all algorithms keyed by algorithm name. */
@@ -91,6 +95,16 @@ export interface VerificationResult {
         q3: number;
     };
     instructions: string[];
+}
+
+/** Context for smarter algorithm recommendations. */
+export interface RecommendationContext {
+    /** Software the user is working with (e.g. "Excel", "R", "Python"). */
+    userSoftware?: string;
+    /** Use case description (e.g. "teaching", "research"). */
+    useCase?: string;
+    /** User experience level. */
+    experience?: 'beginner' | 'intermediate' | 'expert';
 }
 
 /** Algorithm recommendation with confidence and alternatives. */

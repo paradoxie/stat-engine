@@ -1,3 +1,5 @@
+import { ValidationError } from './errors';
+
 /**
  * @plotnerd/stat-engine — Shared Math Utilities
  *
@@ -24,7 +26,7 @@
  */
 export function calculateMedian(sortedData: number[]): number {
     if (sortedData.length === 0) {
-        throw new Error('Cannot calculate median of an empty array');
+        throw new ValidationError('Cannot calculate median of an empty array', 'sortedData');
     }
 
     const n = sortedData.length;
@@ -58,15 +60,25 @@ export function calculateMedian(sortedData: number[]): number {
  * ```
  */
 export function roundToPrecision(num: number, decimals: number = 4): number {
-    if (!isFinite(num)) {
-        throw new Error(`Cannot round non-finite value: ${num}`);
+    if (typeof num !== 'number' || !Number.isFinite(num)) {
+        throw new ValidationError(`Cannot round non-finite value: ${num}`, 'num');
     }
     if (decimals < 0 || !Number.isInteger(decimals)) {
-        throw new Error(`Decimal places must be a non-negative integer, got: ${decimals}`);
+        throw new ValidationError(`Invalid decimal places: ${decimals}. Must be a non-negative integer.`, 'decimals');
     }
 
+    if (num === 0) return 0;
+
+    // Round half away from zero for statistical consistency.
+    // Standard Math.round uses "round half up" (toward +∞), creating asymmetry
+    // between positive and negative values. By operating on the absolute value
+    // and restoring the sign, we get symmetric rounding:
+    //   roundToPrecision( 2.005, 2) →  2.01
+    //   roundToPrecision(-2.005, 2) → -2.01
+    const sign = num < 0 ? -1 : 1;
+    const abs = Math.abs(num);
     const factor = Math.pow(10, decimals);
-    return Math.round((num + Number.EPSILON) * factor) / factor;
+    return sign * Math.round((abs + Number.EPSILON) * factor) / factor;
 }
 
 /**
@@ -136,7 +148,7 @@ export function isSortedAscending(data: number[]): boolean {
  */
 export function calculateVariance(data: number[], mean: number): number {
     if (data.length === 0) {
-        return 0;
+        throw new ValidationError('Cannot calculate variance of an empty array', 'data');
     }
 
     // Two-pass algorithm: first compute mean (provided), then sum squared deviations
@@ -148,6 +160,33 @@ export function calculateVariance(data: number[], mean: number): number {
     }
 
     return sumSquaredDev / data.length;
+}
+
+/**
+ * Assert that a value is a finite number (not NaN, Infinity, or non-number type).
+ *
+ * Uses `typeof` + `Number.isFinite` double guard to reject strings and other
+ * types that the global `isFinite()` would silently coerce (e.g. `isFinite('2')` is `true`).
+ *
+ * @param value - Value to check.
+ * @param label - Context label for the error message (e.g. "index 3").
+ * @throws {Error} If the value is not a finite number.
+ *
+ * @example
+ * ```ts
+ * assertFiniteNumber(42, 'index 0');          // ok
+ * assertFiniteNumber('2', 'index 1');         // throws
+ * assertFiniteNumber(NaN, 'index 2');         // throws
+ * assertFiniteNumber(Infinity, 'index 3');    // throws
+ * ```
+ */
+export function assertFiniteNumber(value: unknown, label: string): asserts value is number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new ValidationError(
+            `Invalid value at ${label}: ${String(value)}. All values must be finite numbers (not NaN, Infinity, or non-number types).`,
+            label
+        );
+    }
 }
 
 /**

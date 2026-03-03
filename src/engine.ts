@@ -6,9 +6,11 @@ import type {
     VerificationOptions,
     VerificationResult,
     AlgorithmRecommendation,
+    RecommendationContext,
     StatisticalResults
 } from './types';
-import { calculateMedian, kahanSum, isSortedAscending, calculateVariance, calculateStdDev, roundToPrecision } from './math-utils';
+import { calculateMedian, kahanSum, isSortedAscending, calculateVariance, calculateStdDev, roundToPrecision, assertFiniteNumber } from './math-utils';
+import { ValidationError, AlgorithmError } from './errors';
 
 /**
  * PlotNerd Multi-Algorithm Calculation Engine V2.2
@@ -37,17 +39,97 @@ import { calculateMedian, kahanSum, isSortedAscending, calculateVariance, calcul
  */
 export class MultiAlgorithmEngine {
 
-    // Algorithm metadata configuration
+    // ─── Named constants (defaults) ──────────────────────────────────────
+
+    /** Minimum number of data points required for quartile calculation. */
+    private static readonly MIN_DATA_POINTS = 4;
+
+    /** Standard IQR multiplier for Tukey fences (1.5×IQR). */
+    private static readonly DEFAULT_FENCE_MULTIPLIER = 1.5;
+
+    /** Default decimal precision for rounding output values. */
+    private static readonly DEFAULT_PRECISION = 4;
+
+    /** Threshold below which algorithm differences are considered identical. */
+    private static readonly DIFF_THRESHOLD_IDENTICAL = 0.001;
+
+    /** Threshold below which differences are considered minor (vs significant). */
+    private static readonly DIFF_THRESHOLD_MINOR = 0.1;
+
+    /** Threshold below which differences are considered significant (vs major). */
+    private static readonly DIFF_THRESHOLD_SIGNIFICANT = 1.0;
+
+    // ─── Instance-level configuration ────────────────────────────────────
+
+    /** Output decimal precision for this instance. */
+    readonly precision: number;
+
+    /** IQR fence multiplier for outlier detection for this instance. */
+    readonly fenceMultiplier: number;
+
+    /**
+     * Create a configured engine instance.
+     *
+     * @param options - Optional configuration overrides.
+     * @param options.precision - Decimal places for rounding (default: 4).
+     * @param options.fenceMultiplier - IQR multiplier for outlier fences (default: 1.5).
+     *
+     * @example
+     * ```ts
+     * // Default behaviour (same as static methods)
+     * const engine = new MultiAlgorithmEngine();
+     *
+     * // Custom precision & 3×IQR extreme outlier detection
+     * const custom = new MultiAlgorithmEngine({ precision: 6, fenceMultiplier: 3 });
+     * const results = custom.calculate([1, 2, 3, 4, 5, 6, 7, 8]);
+     * ```
+     */
+    constructor(options?: { precision?: number; fenceMultiplier?: number }) {
+        const precision = options?.precision ?? MultiAlgorithmEngine.DEFAULT_PRECISION;
+        const fence = options?.fenceMultiplier ?? MultiAlgorithmEngine.DEFAULT_FENCE_MULTIPLIER;
+
+        if (!Number.isInteger(precision) || precision < 0 || precision > 15) {
+            throw new ValidationError(
+                `precision must be an integer between 0 and 15, got: ${precision}`,
+                'precision'
+            );
+        }
+        if (typeof fence !== 'number' || !Number.isFinite(fence) || fence <= 0) {
+            throw new ValidationError(
+                `fenceMultiplier must be a positive finite number, got: ${fence}`,
+                'fenceMultiplier'
+            );
+        }
+
+        this.precision = precision;
+        this.fenceMultiplier = fence;
+    }
+
+    /**
+     * Instance method: calculate all algorithms with this engine's configuration.
+     *
+     * @param numbers - Raw numeric data (unsorted is fine).
+     * @returns Results keyed by algorithm name.
+     */
+    calculate(numbers: number[]): MultiAlgorithmResults {
+        return MultiAlgorithmEngine._calculateAllAlgorithms(
+            numbers,
+            this.precision,
+            this.fenceMultiplier
+        );
+    }
+
+    // ─── Algorithm metadata ──────────────────────────────────────────────
     private static readonly ALGORITHM_METADATA: Record<QuartileAlgorithm, AlgorithmMetadata> = {
         tukey_hinges: {
             id: 'tukey_hinges',
             name: 'Textbook Method (Tukey\'s Hinges)',
-            description: 'Classic method based on median splitting, results are always original data values',
+            description: 'Median-splitting method (inclusive median for odd n). Halves may produce interpolated values.',
             category: 'academic',
             compatibleWith: ['Statistics Textbooks', 'Alcula Calculator', 'Manual Calculation'],
             verificationSource: 'Alcula Five Number Summary',
             verificationMethod: 'Manual calculation verification',
-            precision: 'exact',
+            precision: 'interpolated',
             complexity: 'low'
         },
         r_python_default: {
@@ -99,15 +181,21 @@ export class MultiAlgorithmEngine {
     /**
      * Get metadata for a specific algorithm.
      */
-    static getAlgorithmMetadata(algorithm: QuartileAlgorithm): AlgorithmMetadata {
-        return this.ALGORITHM_METADATA[algorithm];
+    static getAlgorithmMetadata(algorithm: QuartileAlgorithm): Readonly<AlgorithmMetadata> {
+        const meta = this.ALGORITHM_METADATA[algorithm];
+        return Object.freeze({ ...meta, compatibleWith: Object.freeze([...meta.compatibleWith]) });
     }
 
     /**
      * Get metadata for all available algorithms.
+     * Returns frozen copies to prevent mutation of internal state.
      */
-    static getAvailableAlgorithms(): AlgorithmMetadata[] {
-        return Object.values(this.ALGORITHM_METADATA);
+    static getAvailableAlgorithms(): ReadonlyArray<Readonly<AlgorithmMetadata>> {
+        return Object.freeze(
+            Object.values(this.ALGORITHM_METADATA).map(meta =>
+                Object.freeze({ ...meta, compatibleWith: Object.freeze([...meta.compatibleWith]) })
+            )
+        );
     }
 
     /**
@@ -123,13 +211,23 @@ export class MultiAlgorithmEngine {
         algorithm: QuartileAlgorithm
     ): { q1: number; median: number; q3: number } {
 
+        if (!Array.isArray(sortedData)) {
+            throw new ValidationError('sortedData must be an array of numbers', 'sortedData');
+        }
+
         if (sortedData.length === 0) {
-            throw new Error('Cannot calculate quartiles for empty dataset');
+            throw new ValidationError('Cannot calculate quartiles for empty dataset', 'sortedData');
+        }
+
+        // Validate every element is a finite number (catches NaN, Infinity, strings, etc.)
+        for (let i = 0; i < sortedData.length; i++) {
+            assertFiniteNumber(sortedData[i], `index ${i}`);
         }
 
         if (!isSortedAscending(sortedData)) {
-            throw new Error(
-                'Data must be sorted in ascending order. Use [...data].sort((a, b) => a - b) first.'
+            throw new ValidationError(
+                'Data must be sorted in ascending order. Use [...data].sort((a, b) => a - b) first.',
+                'sortedData'
             );
         }
 
@@ -158,7 +256,44 @@ export class MultiAlgorithmEngine {
             case 'wolfram_alpha':
                 return this.calculateWolframAlpha(sortedData, median);
             default:
-                throw new Error(`Unsupported algorithm: ${algorithm}`);
+                throw new ValidationError(`Unsupported algorithm: ${algorithm}`, 'algorithm');
+        }
+    }
+
+    /**
+     * Internal unchecked quartile calculation — skips validation for
+     * data that has already been validated and sorted by
+     * `_calculateAllAlgorithms`. This avoids redundant O(n) checks
+     * on each of the 5 algorithm iterations.
+     *
+     * @internal
+     */
+    private static _calculateQuartilesUnchecked(
+        sortedData: number[],
+        algorithm: QuartileAlgorithm
+    ): { q1: number; median: number; q3: number } {
+        const n = sortedData.length;
+        const range = sortedData[n - 1] - sortedData[0];
+        if (range === 0) {
+            const value = sortedData[0];
+            return { q1: value, median: value, q3: value };
+        }
+
+        const median = calculateMedian(sortedData);
+
+        switch (algorithm) {
+            case 'tukey_hinges':
+                return this.calculateTukeyHinges(sortedData, median);
+            case 'r_python_default':
+                return this.calculateR7Method(sortedData, median);
+            case 'excel_inclusive':
+                return this.calculateExcelInclusive(sortedData, median);
+            case 'excel_exclusive':
+                return this.calculateExcelExclusive(sortedData, median);
+            case 'wolfram_alpha':
+                return this.calculateWolframAlpha(sortedData, median);
+            default:
+                throw new ValidationError(`Unsupported algorithm: ${algorithm}`, 'algorithm');
         }
     }
 
@@ -229,15 +364,16 @@ export class MultiAlgorithmEngine {
      *
      * Uses the same index rule as Hyndman-Fan Type 7 / R type=7:
      * h = (n - 1) * p + 1
+     *
+     * Delegates to {@link calculateR7Method} — both implement
+     * Hyndman-Fan Type 7 interpolation. Kept as a separate entry point
+     * for semantic clarity in the switch dispatch.
      */
     private static calculateExcelInclusive(
         sortedData: number[],
         median: number
     ): { q1: number; median: number; q3: number } {
-        const q1 = this.interpolateR7(sortedData, 0.25);
-        const q3 = this.interpolateR7(sortedData, 0.75);
-
-        return { q1, median, q3 };
+        return this.calculateR7Method(sortedData, median);
     }
 
     /**
@@ -325,15 +461,31 @@ export class MultiAlgorithmEngine {
      * ```
      */
     static calculateAllAlgorithms(numbers: number[]): MultiAlgorithmResults {
-        if (!Array.isArray(numbers) || numbers.length < 4) {
-            throw new Error('At least 4 data points required for quartile calculation');
+        return this._calculateAllAlgorithms(
+            numbers,
+            this.DEFAULT_PRECISION,
+            this.DEFAULT_FENCE_MULTIPLIER
+        );
+    }
+
+    /**
+     * Internal implementation shared by static and instance methods.
+     */
+    private static _calculateAllAlgorithms(
+        numbers: number[],
+        precision: number,
+        fenceMultiplier: number
+    ): MultiAlgorithmResults {
+        if (!Array.isArray(numbers) || numbers.length < this.MIN_DATA_POINTS) {
+            throw new ValidationError(
+                `At least ${this.MIN_DATA_POINTS} data points required for quartile calculation`,
+                'data'
+            );
         }
 
-        // Validate all values are finite numbers
+        // Validate all values are finite numbers (typeof + Number.isFinite double guard)
         for (let i = 0; i < numbers.length; i++) {
-            if (!isFinite(numbers[i])) {
-                throw new Error(`Invalid value at index ${i}: ${numbers[i]}. All values must be finite numbers.`);
-            }
+            assertFiniteNumber(numbers[i], `index ${i}`);
         }
 
         const sortedData = [...numbers].sort((a, b) => a - b);
@@ -347,17 +499,28 @@ export class MultiAlgorithmEngine {
         const variance = calculateVariance(numbers, mean);
         const standardDeviation = calculateStdDev(numbers, mean);
 
-        const results: MultiAlgorithmResults = {} as MultiAlgorithmResults;
+        // Guard against overflow: sum/mean/variance can exceed Number.MAX_VALUE for extreme data
+        if (!Number.isFinite(sum) || !Number.isFinite(mean) || !Number.isFinite(variance)) {
+            throw new ValidationError(
+                'Numeric overflow: data values are too large for safe computation. ' +
+                'Consider normalizing or scaling your data before analysis.',
+                'data'
+            );
+        }
+
+        const results: Partial<MultiAlgorithmResults> = {};
 
         for (const algorithm of Object.keys(this.ALGORITHM_METADATA) as QuartileAlgorithm[]) {
-            const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            // performance.now() is available in Node 16+ and all target browsers.
+            // Using a consistent high-resolution timer avoids unit mismatch.
+            const startTime = performance.now();
 
             try {
-                const { q1, median, q3 } = this.calculateQuartiles(sortedData, algorithm);
+                const { q1, median, q3 } = this._calculateQuartilesUnchecked(sortedData, algorithm);
                 const iqr = q3 - q1;
 
-                const lowerFence = q1 - 1.5 * iqr;
-                const upperFence = q3 + 1.5 * iqr;
+                const lowerFence = q1 - fenceMultiplier * iqr;
+                const upperFence = q3 + fenceMultiplier * iqr;
                 const outliers: number[] = [];
                 const outlierIndices: number[] = [];
 
@@ -368,7 +531,7 @@ export class MultiAlgorithmEngine {
                     }
                 });
 
-                const round = (num: number): number => roundToPrecision(num, 4);
+                const round = (num: number): number => roundToPrecision(num, precision);
 
                 results[algorithm] = {
                     minimum: round(minimum),
@@ -392,17 +555,32 @@ export class MultiAlgorithmEngine {
                     upperFence: round(upperFence),
                     variance: round(variance),
                     standardDeviation: round(standardDeviation),
-                    calculationTime: (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime,
+                    calculationTime: performance.now() - startTime,
                     dataRange: round(dataRange),
                     mean: round(mean)
                 };
 
             } catch (error) {
-                throw new Error(`Algorithm ${algorithm} calculation failed: ${error instanceof Error ? error.message : String(error)}`);
+                if (error instanceof ValidationError) throw error;
+                throw new AlgorithmError(
+                    `Algorithm ${algorithm} calculation failed: ${error instanceof Error ? error.message : String(error)}`,
+                    algorithm
+                );
             }
         }
 
-        return results;
+        // Runtime completeness check: verify all 5 algorithms are populated
+        const expectedAlgorithms = Object.keys(this.ALGORITHM_METADATA) as QuartileAlgorithm[];
+        for (const alg of expectedAlgorithms) {
+            if (!results[alg]) {
+                throw new AlgorithmError(
+                    `Algorithm '${alg}' result missing after calculation`,
+                    alg
+                );
+            }
+        }
+
+        return results as MultiAlgorithmResults;
     }
 
     /**
@@ -416,10 +594,35 @@ export class MultiAlgorithmEngine {
         results: MultiAlgorithmResults,
         baseAlgorithm: QuartileAlgorithm = 'r_python_default'
     ): AlgorithmComparison[] {
+        if (!results || typeof results !== 'object') {
+            throw new ValidationError(
+                'results must be a valid MultiAlgorithmResults object',
+                'results'
+            );
+        }
+
         const baseResult = results[baseAlgorithm];
+        if (!baseResult || typeof baseResult.q1 !== 'number' || typeof baseResult.q3 !== 'number' || typeof baseResult.iqr !== 'number') {
+            throw new ValidationError(
+                `Base algorithm '${baseAlgorithm}' not found or incomplete in results. Ensure results come from calculateAllAlgorithms().`,
+                'baseAlgorithm'
+            );
+        }
+
+        const knownAlgorithms = new Set<string>(Object.keys(this.ALGORITHM_METADATA));
         const comparisons: AlgorithmComparison[] = [];
 
         for (const [algorithm, result] of Object.entries(results) as [QuartileAlgorithm, StatisticalResults][]) {
+            // Skip unknown algorithm keys to enforce QuartileAlgorithm contract
+            if (!knownAlgorithms.has(algorithm)) continue;
+
+            if (!result || typeof result.q1 !== 'number' || typeof result.q3 !== 'number' || typeof result.iqr !== 'number') {
+                throw new ValidationError(
+                    `Algorithm '${algorithm}' result is missing or has incomplete q1/q3/iqr fields.`,
+                    'results'
+                );
+            }
+
             const q1_diff = Math.abs(result.q1 - baseResult.q1);
             const q3_diff = Math.abs(result.q3 - baseResult.q3);
             const iqr_diff = Math.abs(result.iqr - baseResult.iqr);
@@ -427,11 +630,11 @@ export class MultiAlgorithmEngine {
             const maxDiff = Math.max(q1_diff, q3_diff, iqr_diff);
             let significance: AlgorithmComparison['significance'];
 
-            if (maxDiff < 0.001) {
+            if (maxDiff < this.DIFF_THRESHOLD_IDENTICAL) {
                 significance = 'identical';
-            } else if (maxDiff < 0.1) {
+            } else if (maxDiff < this.DIFF_THRESHOLD_MINOR) {
                 significance = 'minor';
-            } else if (maxDiff < 1.0) {
+            } else if (maxDiff < this.DIFF_THRESHOLD_SIGNIFICANT) {
                 significance = 'significant';
             } else {
                 significance = 'major';
@@ -447,7 +650,12 @@ export class MultiAlgorithmEngine {
 
         return comparisons.sort((a, b) => {
             const significance_order = ['identical', 'minor', 'significant', 'major'];
-            return significance_order.indexOf(a.significance) - significance_order.indexOf(b.significance);
+            const primary = significance_order.indexOf(a.significance) - significance_order.indexOf(b.significance);
+            if (primary !== 0) return primary;
+            // Secondary: within same significance tier, sort by total diff ascending
+            const totalA = a.differences.q1_diff + a.differences.q3_diff + a.differences.iqr_diff;
+            const totalB = b.differences.q1_diff + b.differences.q3_diff + b.differences.iqr_diff;
+            return totalA - totalB;
         });
     }
 
@@ -458,7 +666,23 @@ export class MultiAlgorithmEngine {
      * @returns Verification URLs, code snippets, and step-by-step instructions.
      */
     static generateVerification(options: VerificationOptions): VerificationResult {
-        const { algorithm, data } = options;
+        if (!options || typeof options !== 'object') {
+            throw new ValidationError(
+                'options must be a valid VerificationOptions object',
+                'options'
+            );
+        }
+
+        const { algorithm, data, includeSteps = true, includeCode = true } = options;
+
+        if (!Array.isArray(data) || data.length === 0) {
+            throw new ValidationError('Verification requires a non-empty data array', 'data');
+        }
+
+        // Validate all values are finite numbers
+        for (let i = 0; i < data.length; i++) {
+            assertFiniteNumber(data[i], `index ${i}`);
+        }
 
         let verificationUrl = '';
         let verificationCode = '';
@@ -525,9 +749,9 @@ export class MultiAlgorithmEngine {
         return {
             algorithm,
             verificationUrl,
-            verificationCode,
+            verificationCode: includeCode ? verificationCode : '',
             expectedResults,
-            instructions
+            instructions: includeSteps ? instructions : []
         };
     }
 
@@ -539,19 +763,34 @@ export class MultiAlgorithmEngine {
      * @param context - Optional context for smarter recommendations.
      * @returns Recommended algorithm with confidence score and alternatives.
      */
-    static recommendAlgorithm(data: number[], context?: {
-        userSoftware?: string;
-        useCase?: string;
-        experience?: 'beginner' | 'intermediate' | 'expert';
-    }): AlgorithmRecommendation {
+    static recommendAlgorithm(data: number[], context?: RecommendationContext): AlgorithmRecommendation {
+
+        if (!Array.isArray(data) || data.length === 0) {
+            throw new ValidationError('Recommendation requires a non-empty data array', 'data');
+        }
+
+        // Validate all values are finite numbers (consistent with other public APIs)
+        for (let i = 0; i < data.length; i++) {
+            assertFiniteNumber(data[i], `index ${i}`);
+        }
 
         const n = data.length;
         const hasRepeats = new Set(data).size < data.length;
 
-        if (context?.userSoftware) {
+        if (context?.userSoftware !== undefined) {
+            if (typeof context.userSoftware !== 'string') {
+                throw new ValidationError(
+                    `userSoftware must be a string, got: ${typeof context.userSoftware}`,
+                    'userSoftware'
+                );
+            }
             const software = context.userSoftware.toLowerCase();
 
-            if (software.includes('excel') || software.includes('sheets')) {
+            const isExcelOrSheets = /\bexcel\b|\bgoogle\s+sheets\b|\bsheets\b/.test(software);
+            const isWolframOrMathematica = /\bwolfram(?:alpha)?\b|\bmathematica\b/.test(software);
+            const isRPythonEcosystem = /\br\b|\brstudio\b|\bpython(?:\d+(?:\.\d+)*)?\b|\bnumpy\b|\bscipy\b|\bpandas\b/.test(software);
+
+            if (isExcelOrSheets) {
                 return {
                     recommended: 'excel_inclusive',
                     reason: 'Fully compatible with Excel/Google Sheets QUARTILE.INC function',
@@ -562,18 +801,7 @@ export class MultiAlgorithmEngine {
                 };
             }
 
-            if (software.includes('r') || software.includes('python') || software.includes('numpy')) {
-                return {
-                    recommended: 'r_python_default',
-                    reason: 'Consistent with default quartile calculation methods in R and Python',
-                    confidence: 0.95,
-                    alternatives: [
-                        { algorithm: 'wolfram_alpha', reason: 'If Mathematica compatibility is needed' }
-                    ]
-                };
-            }
-
-            if (software.includes('wolfram') || software.includes('mathematica')) {
+            if (isWolframOrMathematica) {
                 return {
                     recommended: 'wolfram_alpha',
                     reason: 'Consistent with WolframAlpha and Mathematica calculation results',
@@ -583,9 +811,26 @@ export class MultiAlgorithmEngine {
                     ]
                 };
             }
+
+            if (isRPythonEcosystem) {
+                return {
+                    recommended: 'r_python_default',
+                    reason: 'Consistent with default quartile calculation methods in R and Python',
+                    confidence: 0.95,
+                    alternatives: [
+                        { algorithm: 'wolfram_alpha', reason: 'If Mathematica compatibility is needed' }
+                    ]
+                };
+            }
         }
 
-        if (context?.useCase) {
+        if (context?.useCase !== undefined) {
+            if (typeof context.useCase !== 'string') {
+                throw new ValidationError(
+                    `useCase must be a string, got: ${typeof context.useCase}`,
+                    'useCase'
+                );
+            }
             const useCase = context.useCase.toLowerCase();
 
             if (useCase.includes('learning') || useCase.includes('teaching') || useCase.includes('course') || useCase.includes('education')) {

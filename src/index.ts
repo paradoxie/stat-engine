@@ -8,6 +8,7 @@
  */
 
 export { MultiAlgorithmEngine } from './engine';
+export { StatEngineError, ValidationError, AlgorithmError } from './errors';
 export {
     calculateMedian,
     roundToPrecision,
@@ -15,6 +16,7 @@ export {
     isSortedAscending,
     calculateVariance,
     calculateStdDev,
+    assertFiniteNumber,
 } from './math-utils';
 export type {
     QuartileAlgorithm,
@@ -25,4 +27,5 @@ export type {
     VerificationOptions,
     VerificationResult,
     AlgorithmRecommendation,
+    RecommendationContext,
 } from './types';

@@ -17,7 +17,7 @@ Different tools calculate quartiles differently. The same dataset can produce **
 
 | Algorithm | Compatible With | Method |
 |-----------|----------------|--------|
-| **Tukey's Hinges** | Statistics textbooks, manual calculation | Median splitting (exact values) |
+| **Tukey's Hinges** | Statistics textbooks, manual calculation | Inclusive median splitting (may interpolate) |
 | **R-7 / Python** | R `quantile(type=7)`, NumPy, SciPy, Google Sheets | Linear interpolation `h=(n-1)p+1` |
 | **Excel INC** | Excel `QUARTILE.INC`, LibreOffice, WPS | Hyndman-Fan Type 7 |
 | **Excel EXC** | Excel `QUARTILE.EXC` | Hyndman-Fan Type 6 `h=(n+1)p` |
@@ -58,6 +58,16 @@ console.log(results.tukey_hinges.fiveNumberSummary);
 // [6, 25.5, 40, 42.5, 49]
 ```
 
+> **⚠️ Note:** `calculateAllAlgorithms` requires at least **4 data points**. Other APIs (`calculateQuartiles`, `generateVerification`, `recommendAlgorithm`) accept any non-empty array. All methods reject `NaN`, `Infinity`, and non-number values.
+
+### Configurable Instance Mode
+
+```ts
+// Custom precision (6 decimals) and 3×IQR extreme outlier detection
+const engine = new MultiAlgorithmEngine({ precision: 6, fenceMultiplier: 3 });
+const results = engine.calculate([1, 2, 3, 4, 5, 6, 7, 8]);
+```
+
 ### Each algorithm result includes:
 
 ```ts
@@ -65,6 +75,7 @@ console.log(results.tukey_hinges.fiveNumberSummary);
   minimum, maximum, count, sum, mean,   // Basic stats
   q1, median, q3, iqr,                  // Quartiles
   fiveNumberSummary,                     // [min, Q1, median, Q3, max]
+  variance, standardDeviation,           // Dispersion
   outliers, outlierIndices,              // Outlier detection
   lowerFence, upperFence,               // 1.5×IQR fences
   dataRange, calculationTime             // Metadata
@@ -116,6 +127,35 @@ const rec = MultiAlgorithmEngine.recommendAlgorithm(data, {
 console.log(rec.recommended, rec.confidence); // 'excel_inclusive', 0.95
 ```
 
+## Error Handling
+
+All errors extend `StatEngineError` so you can catch them with a single base class or drill into specifics:
+
+```ts
+import { ValidationError, AlgorithmError, StatEngineError } from '@plotnerd/stat-engine';
+
+try {
+    const results = engine.calculate(data);
+} catch (err) {
+    if (err instanceof ValidationError) {
+        console.error(`Input error on field '${err.field}': ${err.message}`);
+    } else if (err instanceof AlgorithmError) {
+        console.error(`Algorithm '${err.algorithm}' failed: ${err.message}`);
+    }
+}
+```
+
+### Error matrix by API
+
+| Method | Throws | When |
+|--------|--------|------|
+| `calculateAllAlgorithms` | `ValidationError` (field: `data`) | Array < 4 elements, non-finite values, non-number types |
+| `calculateQuartiles` | `ValidationError` (field: `sortedData`) | Empty array, unsorted, non-finite values |
+| `compareAlgorithms` | `ValidationError` (field: `results` / `baseAlgorithm`) | Null/incomplete results object |
+| `recommendAlgorithm` | `ValidationError` (field: `data` / `userSoftware` / `useCase`) | Empty array, non-string context fields |
+| `generateVerification` | `ValidationError` (field: `options` / `data`) | Null/non-object options, empty array, non-finite values |
+| `new MultiAlgorithmEngine()` | `ValidationError` (field: `precision` / `fenceMultiplier`) | Invalid config values |
+
 ### `MultiAlgorithmEngine.generateVerification(options)`
 
 Generate verification code and links for R, Python, Excel, or WolframAlpha.
@@ -158,7 +198,13 @@ import type {
   MultiAlgorithmResults,
   AlgorithmComparison,
   AlgorithmRecommendation,
+  RecommendationContext,
   VerificationResult,
+} from '@plotnerd/stat-engine';
+
+import {
+  ValidationError,
+  AlgorithmError,
 } from '@plotnerd/stat-engine';
 ```
 
@@ -166,8 +212,9 @@ import type {
 
 - **Kahan summation** for compensated floating-point addition
 - **Numerically stable median** using overflow-safe midpoint calculation
+- **Symmetric rounding** — "round half away from zero" for statistical consistency
 - **4-decimal precision** with epsilon-aware rounding
-- **26 test cases** covering edge cases, negative numbers, duplicates, and precision
+- **130+ test cases** covering edge cases, negative numbers, duplicates, precision, performance, and error handling
 
 ## Browser & Node.js Support
 

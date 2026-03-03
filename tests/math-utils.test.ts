@@ -77,13 +77,21 @@ describe('roundToPrecision', () => {
 
     it('should handle negative numbers', () => {
         expect(roundToPrecision(-3.14159, 2)).toBe(-3.14);
-        expect(roundToPrecision(-0.005, 2)).toBe(-0);
+        expect(roundToPrecision(-0.005, 2)).toBe(-0.01);
     });
 
     it('should handle edge case 2.005 with epsilon-aware rounding', () => {
         // Classic floating-point trap: Math.round(2.005 * 100) / 100 = 2.00
         // Epsilon-aware rounding should give 2.01
         expect(roundToPrecision(2.005, 2)).toBe(2.01);
+    });
+
+    it('should round symmetrically for positive and negative values', () => {
+        // "Round half away from zero" for statistical consistency
+        expect(roundToPrecision(2.005, 2)).toBe(2.01);
+        expect(roundToPrecision(-2.005, 2)).toBe(-2.01);
+        expect(roundToPrecision(0.005, 2)).toBe(0.01);
+        expect(roundToPrecision(-0.005, 2)).toBe(-0.01);
     });
 
     it('should throw for non-finite values', () => {
@@ -206,8 +214,8 @@ describe('calculateVariance', () => {
         expect(calculateVariance([2, 4, 4, 4, 5, 5, 7, 9], 5)).toBe(4);
     });
 
-    it('should return 0 for empty arrays', () => {
-        expect(calculateVariance([], 0)).toBe(0);
+    it('should throw for empty arrays', () => {
+        expect(() => calculateVariance([], 0)).toThrow('Cannot calculate variance of an empty array');
     });
 
     it('should handle negative values', () => {
@@ -230,5 +238,42 @@ describe('calculateStdDev', () => {
     it('should handle negative values', () => {
         // Variance = 2, so stddev = sqrt(2) ≈ 1.4142
         expect(calculateStdDev([-2, -1, 0, 1, 2], 0)).toBeCloseTo(Math.sqrt(2), 10);
+    });
+});
+
+// ─────────────────────────────────────────────────────────
+// assertFiniteNumber
+// ─────────────────────────────────────────────────────────
+import { assertFiniteNumber } from '../src/math-utils';
+
+describe('assertFiniteNumber', () => {
+    it('should pass for valid finite numbers', () => {
+        expect(() => assertFiniteNumber(0, 'test')).not.toThrow();
+        expect(() => assertFiniteNumber(42, 'test')).not.toThrow();
+        expect(() => assertFiniteNumber(-3.14, 'test')).not.toThrow();
+        expect(() => assertFiniteNumber(Number.MAX_SAFE_INTEGER, 'test')).not.toThrow();
+    });
+
+    it('should reject NaN', () => {
+        expect(() => assertFiniteNumber(NaN, 'index 0')).toThrow('Invalid value at index 0');
+    });
+
+    it('should reject Infinity', () => {
+        expect(() => assertFiniteNumber(Infinity, 'index 1')).toThrow('Invalid value at index 1');
+        expect(() => assertFiniteNumber(-Infinity, 'index 2')).toThrow('Invalid value at index 2');
+    });
+
+    it('should reject strings (unlike global isFinite)', () => {
+        expect(() => assertFiniteNumber('2' as any, 'index 0')).toThrow('Invalid value at index 0');
+        expect(() => assertFiniteNumber('hello' as any, 'index 0')).toThrow('Invalid value at index 0');
+    });
+
+    it('should reject booleans', () => {
+        expect(() => assertFiniteNumber(true as any, 'index 0')).toThrow('not NaN, Infinity, or non-number');
+    });
+
+    it('should reject null and undefined', () => {
+        expect(() => assertFiniteNumber(null as any, 'index 0')).toThrow('Invalid value');
+        expect(() => assertFiniteNumber(undefined as any, 'index 0')).toThrow('Invalid value');
     });
 });
